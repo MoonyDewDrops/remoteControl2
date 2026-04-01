@@ -1,13 +1,13 @@
 <?php
 session_start();
 
-if (!isset($_SESSION['chosenGame'])) {
-    $gameStatus = "gameChosen";
-    $_SESSION['chosenGame'] = $gameStatus;
-} else {
-    $gameStatus = "";
-    $_SESSIONS['gameStatus'] = $gameStatus;
-}
+// if (!isset($_SESSION['chosenGame'])) {
+//     $gameStatus = "gameChosen";
+//     $_SESSION['chosenGame'] = $gameStatus;
+// } else {
+//     $gameStatus = "";
+//     $_SESSIONS['gameStatus'] = $gameStatus;
+// }
 ?>
 
 <!DOCTYPE html>

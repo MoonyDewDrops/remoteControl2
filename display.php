@@ -1,13 +1,5 @@
 <?php
 session_start();
-
-if (!isset($_SESSION['chosenGame'])) {
-    $gameStatus = "gameChosen";
-    $_SESSION['chosenGame'] = $gameStatus;
-} else {
-    $gameStatus = "";
-    $_SESSIONS['gameStatus'] = $gameStatus;
-}
 ?>
 
 <!DOCTYPE html>
@@ -22,14 +14,16 @@ if (!isset($_SESSION['chosenGame'])) {
     <div>
         <h1>Game?</h1>
 
-        <div><img src="assets/images/game.png" alt="Game Image"></div>
-        <div><img src="assets/images/game2.png" alt="Game Image 2"></div>
-        <div><img src="assets/images/game3.png" alt="Game Image 3"></div>
+        <div id="game1"><img src="assets/images/game.png" alt="Game Image"></div>
+        <div id="game2"><img src="assets/images/game2.png" alt="Game Image 2"></div>
+        <div id="game3"><img src="assets/images/game3.png" alt="Game Image 3"></div>
 
     </div>
 
     <div>
-        <h1>Code: <?php echo $_SESSION['gameCode']; ?></h1>
+        <h1>Code: Joe Mama</h1>
+
+        <!-- <h1>Code: <?php echo $_SESSION['gameCode']; ?></h1> -->
 
     </div>
 

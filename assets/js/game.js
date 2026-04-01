@@ -1,3 +1,9 @@
+if (sessionStorage.getItem("playerNickname") === null) {
+    window.location.href = "enterGame.php";
+} else {
+const playerNickname = sessionStorage.getItem("playerNickname");
+document.getElementById("playerNickname").innerText = playerNickname;
+
 function getRandomIntInclusive(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -10,8 +16,10 @@ setTimeout(function () {
         const dateThen = new Date();
         // console.log("Clicked at: " + dateThen);
         const timeDiff = dateThen - dateNow;
-        // console.log("Time difference: " + timeDiff + " milliseconds");
+        console.log("Time difference: " + timeDiff + " milliseconds");
         sessionStorage.setItem("reactionTime", timeDiff);
+        sessionStorage.removeItem("playerNickname");
         window.location.href = "rankings.php";
     });
 }, (getRandomIntInclusive(2, 5) * 1000));
+}

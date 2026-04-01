@@ -1,3 +1,6 @@
+<?php
+session_start();   
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,6 +11,7 @@
 </head>
 <body>
     <div id="game-container" style="height: 100vh; width: auto; background-color: green;">
+        <p id="playerNickname"></p>
         
     </div>
     
