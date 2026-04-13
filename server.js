@@ -13,6 +13,13 @@ const io = new Server(server, {
 app.use(express.static("public"));
 
 const games = {};
+const AVAILABLE_GAMES = [
+  {
+    id: "reaction_time",
+    name: "Reaction Time",
+    description: "Current game mode. Click when the signal appears."
+  }
+];
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "0.0.0.0";
@@ -55,6 +62,36 @@ function normalizeCode(code) {
   return String(code || "").trim().toUpperCase();
 }
 
+function normalizeNickname(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+function nicknameExistsInGame(game, nickname) {
+  const target = normalizeNickname(nickname);
+  if (!target) return false;
+  if (normalizeNickname(game.hostName) === target) return true;
+  return game.players.some((p) => normalizeNickname(p.nickname) === target);
+}
+
+function getGameDefinition(gameId) {
+  return AVAILABLE_GAMES.find((g) => g.id === gameId) || null;
+}
+
+function getSelectedGame(game) {
+  return getGameDefinition(game?.selectedGameId);
+}
+
+function buildPlayerListPayload(game) {
+  const selectedGame = getSelectedGame(game);
+  return {
+    players: game.players,
+    hostName: game.hostName,
+    hostId: game.hostId,
+    selectedGameId: selectedGame?.id || null,
+    selectedGameName: selectedGame?.name || null
+  };
+}
+
 function endGame(code) {
   const game = games[code];
   if (!game) return;
@@ -84,17 +121,14 @@ io.on("connection", (socket) => {
       hostId: socket.id,
       hostName: name,
       players: [],
-      state: "lobby"
+      state: "lobby",
+      selectedGameId: null
     };
 
     socket.join(code);
 
     socket.emit("gameCreated", { code, hostId: socket.id });
-    io.to(code).emit("playerList", {
-      players: games[code].players,
-      hostName: games[code].hostName,
-      hostId: games[code].hostId
-    });
+    io.to(code).emit("playerList", buildPlayerListPayload(games[code]));
   });
 
   socket.on("joinGame", ({ code, nickname }) => {
@@ -103,32 +137,52 @@ io.on("connection", (socket) => {
     if (!game) return socket.emit("errorMessage", "Game not found");
     const nick = nickname != null ? String(nickname).trim() : "";
     if (!nick) return socket.emit("errorMessage", "Enter a nickname");
+    if (nicknameExistsInGame(game, nick))
+      return socket.emit("errorMessage", "That nickname is already taken in this game");
 
     game.players.push({ id: socket.id, nickname: nick, reactionTime: null });
     socket.join(roomCode);
 
-    io.to(roomCode).emit("playerList", {
-      players: game.players,
-      hostName: game.hostName,
-      hostId: game.hostId
-    });
+    io.to(roomCode).emit("playerList", buildPlayerListPayload(game));
 
     socket.emit("joinedRoom", { code: roomCode });
   });
 
-  socket.on("startGame", (code) => {
+  socket.on("getAvailableGames", (code) => {
     const roomCode = normalizeCode(code);
+    const game = games[roomCode];
+    if (!game) return;
+    if (socket.id !== game.hostId) return;
+    socket.emit("availableGames", {
+      games: AVAILABLE_GAMES,
+      selectedGameId: game.selectedGameId
+    });
+  });
+
+  socket.on("startGame", (payload) => {
+    const roomCode = normalizeCode(typeof payload === "string" ? payload : payload?.code);
+    const requestedGameId =
+      typeof payload === "object" && payload ? String(payload.gameId || "").trim() : "";
     const game = games[roomCode];
     if (!game) return;
     if (socket.id !== game.hostId) return;
     if (game.players.length === 0)
       return socket.emit("errorMessage", "Need at least one player to start");
 
+    const selectedGameId = requestedGameId || game.selectedGameId || AVAILABLE_GAMES[0]?.id;
+    const selectedGame = getGameDefinition(selectedGameId);
+    if (!selectedGame) return socket.emit("errorMessage", "Selected game is not available");
+    game.selectedGameId = selectedGame.id;
+
     clearGameTimers(game);
     game.state = "waiting";
 
     game.players.forEach((p) => (p.reactionTime = null));
 
+    io.to(roomCode).emit("gameSelected", {
+      gameId: selectedGame.id,
+      gameName: selectedGame.name
+    });
     io.to(roomCode).emit("waitingForSignal");
 
     const delay = Math.random() * 3000 + 1000;
@@ -184,6 +238,7 @@ io.on("connection", (socket) => {
     const roomCode = normalizeCode(code);
     const game = games[roomCode];
     if (!game) return;
+    if (socket.id !== game.hostId) return;
     clearGameTimers(game);
     io.to(roomCode).emit("gameClosed");
     delete games[roomCode];
@@ -206,11 +261,7 @@ io.on("connection", (socket) => {
     game.players = game.players.filter((p) => p.id !== socket.id);
     socket.leave(roomCode);
 
-    io.to(roomCode).emit("playerList", {
-      players: game.players,
-      hostName: game.hostName,
-      hostId: game.hostId
-    });
+    io.to(roomCode).emit("playerList", buildPlayerListPayload(game));
     socket.emit("leftGame");
   });
 
@@ -224,11 +275,25 @@ io.on("connection", (socket) => {
         continue;
       }
       game.players = game.players.filter((p) => p.id !== socket.id);
-      io.to(roomCode).emit("playerList", {
-        players: game.players,
-        hostName: game.hostName,
-        hostId: game.hostId
-      });
+      io.to(roomCode).emit("playerList", buildPlayerListPayload(game));
     }
+  });
+
+  socket.on("setGame", ({ code, gameId }) => {
+    const roomCode = normalizeCode(code);
+    const game = games[roomCode];
+    if (!game) return;
+    if (socket.id !== game.hostId) return;
+
+    const selected = getGameDefinition(gameId);
+    if (!selected) return;
+
+    game.selectedGameId = selected.id;
+
+    io.to(roomCode).emit("playerList", buildPlayerListPayload(game));
+    io.to(roomCode).emit("gameSelected", {
+      gameId: selected.id,
+      gameName: selected.name
+    });
   });
 });

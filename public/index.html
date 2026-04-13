@@ -3,14 +3,18 @@
 
 <head>
   <title>Multiplayer Lobby</title>
-  <link rel="stylesheet" href="assets/css/index.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="assets/css/style.css">
 </head>
 
 <body>
-
+  <div class="arena-glow" aria-hidden="true"></div>
   <!-- Menu screen -->
   <div id="menuScreen">
-    <button onclick="showHost()">Host Game</button> 
+    <div class="team-badge">MENU</div>
+    <h1>Game menu</h1>
+    <p class="hero-text">Create a game or join an existing one!</p>
+    <button onclick="showHost()">Host Game</button>
     <button onclick="showJoin()">Join Game</button>
   </div>
 
@@ -33,7 +37,14 @@
 
   <!-- Lobby -->
   <div id="lobbyScreen" style="display:none;">
+    <div class="team-badge">LOBBY</div>
     <h2 id="gameCode"></h2>
+    <p id="selectedGameLabel">Selected game: Reaction Time</p>
+
+    <div id="gamePickerContainer" style="display:none;">
+      <label for="gamePicker">Game:</label>
+      <select id="gamePicker"></select>
+    </div>
 
     <h3>Players:</h3>
     <ul id="players"></ul>
@@ -48,11 +59,20 @@
     <h2 id="status"></h2>
 
     <div id="reactionBox" style="width:200px;height:200px;background:green;"></div>
+    <p id="reactionText">Wait...</p>
+  </div>
+
+  <!-- Round waiting -->
+  <div id="roundWaitingScreen" style="display:none;">
+    <div class="team-badge">HOLD FOCUS</div>
+    <h2>Reaction submitted</h2>
+    <p id="roundWaitingText">Waiting for the rest of the players...</p>
+    <div class="loader" aria-hidden="true"></div>
   </div>
 
   <!-- Results -->
   <div id="resultScreen" style="display:none;">
-    <h2>Results</h2>
+    <div class="team-badge">RESULTS</div>
     <ul id="scores"></ul>
 
     <button id="btnPlayAgain" type="button" onclick="playAgain()">Play Again</button>
@@ -60,26 +80,60 @@
     <button type="button" onclick="endGame()">End Game</button>
   </div>
 
+  <!-- Notice modal -->
+  <div id="noticeModal" class="notice-backdrop hidden" role="alertdialog" aria-modal="true" aria-labelledby="noticeTitle">
+    <div class="notice-card">
+      <h3 id="noticeTitle">Notice</h3>
+      <p id="noticeMessage"></p>
+      <button type="button" onclick="closeNotice()">OK</button>
+    </div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     let currentCode = null;
     let hostId = null;
+    let selectedGameId = null;
+    let selectedGameName = null;
+    let pendingStartGameId = null;
+    let availableGamesById = {};
+    let hasSubmittedReaction = false;
     const reactionBox = document.getElementById("reactionBox");
     const reactionText = document.getElementById("reactionText");
 
     function resetLocalSession() {
       currentCode = null;
       hostId = null;
+      selectedGameId = null;
+      selectedGameName = null;
+      pendingStartGameId = null;
+      availableGamesById = {};
+      hasSubmittedReaction = false;
+      updateSelectedGameLabel();
       updateHostControls();
     }
 
     function updateHostControls() {
       const isHost = hostId != null && socket.id === hostId;
+
       const startBtn = document.getElementById("btnStartGame");
       const againBtn = document.getElementById("btnPlayAgain");
+      const picker = document.getElementById("gamePickerContainer");
+      const endButtons = document.querySelectorAll("button[onclick='endGame()']");
+
       if (startBtn) startBtn.style.display = isHost ? "inline-block" : "none";
       if (againBtn) againBtn.style.display = isHost ? "inline-block" : "none";
+      if (picker) picker.style.display = isHost ? "block" : "none";
+      endButtons.forEach((btn) => {
+        btn.style.display = isHost ? "inline-block" : "none";
+      });
+    }
+
+    function updateSelectedGameLabel() {
+      const label = document.getElementById("selectedGameLabel");
+      if (!label) return;
+      label.innerText = `Selected game: ${selectedGameName || "Not selected"}`;
     }
 
     function createGame() {
@@ -95,7 +149,17 @@
 
     function startGame() {
       if (!currentCode) return;
-      socket.emit("startGame", currentCode);
+
+      const gameId = pendingStartGameId;
+      if (!gameId) {
+        showNotice("Select a game first", "warning");
+        return;
+      }
+
+      socket.emit("startGame", {
+        code: currentCode,
+        gameId
+      });
     }
 
     function playAgain() {
@@ -117,12 +181,29 @@
     }
 
     function showScreen(screenId) {
-      const screens = ["menuScreen", "hostScreen", "joinScreen", "lobbyScreen", "gameScreen", "resultScreen"];
+      const screens = ["menuScreen", "hostScreen", "joinScreen", "lobbyScreen", "gameScreen", "roundWaitingScreen", "resultScreen"];
       screens.forEach(id => {
         document.getElementById(id).style.display = "none";
       });
 
       document.getElementById(screenId).style.display = "block";
+    }
+
+    function showNotice(message, tone = "info") {
+      const modal = document.getElementById("noticeModal");
+      const title = document.getElementById("noticeTitle");
+      const body = document.getElementById("noticeMessage");
+
+      const toneTitle = tone === "error" ? "Error" : tone === "warning" ? "Warning" : "Notice";
+      title.innerText = toneTitle;
+      body.innerText = typeof message === "string" ? message : "Something happened.";
+      modal.classList.remove("hidden", "tone-error", "tone-warning", "tone-info");
+      modal.classList.add(`tone-${tone}`);
+    }
+
+    function closeNotice() {
+      const modal = document.getElementById("noticeModal");
+      modal.classList.add("hidden");
     }
 
     function showHost() {
@@ -138,6 +219,7 @@
     }
 
     socket.on("gameCreated", ({ code, hostId: hId }) => {
+      socket.emit("getAvailableGames", code);
       currentCode = code;
       hostId = hId;
 
@@ -147,14 +229,17 @@
     });
 
     socket.on("joinedRoom", ({ code }) => {
+      socket.emit("getAvailableGames", code);
       currentCode = code;
       document.getElementById("gameCode").innerText = "Code: " + code;
       showScreen("lobbyScreen");
       updateHostControls();
     });
 
-    socket.on("playerList", ({ players, hostName, hostId: hId }) => {
+    socket.on("playerList", ({ players, hostName, hostId: hId, selectedGameId: sGameId, selectedGameName: sGameName }) => {
       hostId = hId;
+      selectedGameId = sGameId || null;
+      selectedGameName = sGameName || null;
       const ul = document.getElementById("players");
       ul.innerHTML = "";
 
@@ -169,10 +254,60 @@
         li.innerText = p.nickname;
         ul.appendChild(li);
       });
+      updateSelectedGameLabel();
       updateHostControls();
     });
 
+    socket.on("availableGames", ({ games, selectedGameId: currentSelectedId }) => {
+      const picker = document.getElementById("gamePicker");
+      picker.innerHTML = "";
+      availableGamesById = {};
+
+      games.forEach((game) => {
+        availableGamesById[game.id] = game;
+        const option = document.createElement("option");
+        option.value = game.id;
+        option.textContent = game.name;
+        picker.appendChild(option);
+      });
+
+      const selected = currentSelectedId || games[0]?.id;
+      picker.value = selected;
+      pendingStartGameId = selected;
+      selectedGameId = selected || null;
+      selectedGameName = selected && availableGamesById[selected]
+        ? availableGamesById[selected].name
+        : null;
+      updateSelectedGameLabel();
+
+      picker.onchange = () => {
+        pendingStartGameId = picker.value;
+        selectedGameId = picker.value || null;
+        selectedGameName = picker.value && availableGamesById[picker.value]
+          ? availableGamesById[picker.value].name
+          : null;
+        updateSelectedGameLabel();
+
+        socket.emit("setGame", {
+          code: currentCode,
+          gameId: picker.value
+        });
+      };
+    });
+
+    socket.on("gameSelected", ({ gameId, gameName }) => {
+      selectedGameId = gameId || null;
+      selectedGameName = gameName || null;
+      const picker = document.getElementById("gamePicker");
+      if (picker && gameId) {
+        picker.value = gameId;
+        pendingStartGameId = gameId;
+      }
+      updateSelectedGameLabel();
+    });
+
     socket.on("waitingForSignal", () => {
+      hasSubmittedReaction = false;
       showScreen("gameScreen");
       document.getElementById("status").innerText =
         socket.id === hostId ? "Wait for the screen to turn red!" : "Wait for green to turn red…";
@@ -181,6 +316,8 @@
     });
 
     socket.on("signal", () => {
+      hasSubmittedReaction = false;
+      showScreen("gameScreen");
       reactionBox.style.background = "red";
       reactionText.innerText = "CLICK!";
       document.getElementById("status").innerText =
@@ -189,10 +326,36 @@
 
     reactionBox.onclick = () => {
       if (!currentCode) return;
+      if (hasSubmittedReaction) return;
+      hasSubmittedReaction = true;
+
       socket.emit("reactionClick", currentCode);
+
+      if (socket.id !== hostId) {
+        const waitText = document.getElementById("roundWaitingText");
+        waitText.innerText = "Waiting for the rest of the players...";
+        showScreen("roundWaitingScreen");
+      }
     };
 
+    socket.on("partialResults", (players) => {
+      if (!Array.isArray(players)) return;
+      const total = players.length;
+      const finished = players.filter((p) => p.reactionTime !== null).length;
+
+      if (hasSubmittedReaction && socket.id !== hostId) {
+        const waitText = document.getElementById("roundWaitingText");
+        waitText.innerText = `Waiting for others... ${finished}/${total} done`;
+      } else if (socket.id === hostId) {
+        const status = document.getElementById("status");
+        if (status && document.getElementById("gameScreen").style.display !== "none") {
+          status.innerText = `Players finished: ${finished}/${total}`;
+        }
+      }
+    });
+
     socket.on("gameEnded", (results) => {
+      hasSubmittedReaction = false;
       showScreen("resultScreen");
 
       const ul = document.getElementById("scores");
@@ -223,6 +386,7 @@
     });
 
     socket.on("backToLobby", () => {
+      hasSubmittedReaction = false;
       if (currentCode) {
         document.getElementById("gameCode").innerText = "Code: " + currentCode;
       }
@@ -231,7 +395,7 @@
     });
 
     socket.on("errorMessage", (msg) => {
-      alert(typeof msg === "string" ? msg : "Something went wrong");
+      showNotice(msg, "error");
     });
 
     socket.on("leftGame", () => {
@@ -241,7 +405,7 @@
 
     socket.on("gameClosed", () => {
       resetLocalSession();
-      alert("Game ended");
+      showNotice("Game ended");
       showScreen("menuScreen");
     });
   </script>
